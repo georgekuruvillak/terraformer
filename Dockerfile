@@ -1,39 +1,73 @@
-#############      builder       #############
-FROM golang:1.12.13 AS builder
+# SPDX-FileCopyrightText: 2020 SAP SE or an SAP affiliate company and Gardener contributors
+#
+# SPDX-License-Identifier: Apache-2.0
+
+############# golang-base
+FROM eu.gcr.io/gardener-project/3rd/golang:1.15.5 AS golang-base
+
+############# terraform-base
+FROM golang-base AS terraform-base
+
+# install unzip (needed for unzipping terraform provider plugins)
+RUN apt-get update && \
+    apt-get install -y unzip
 
 WORKDIR /tmp/terraformer
-COPY . .
+COPY ./build/fetch-providers.sh .
 
-RUN export TF_VERSION=$(cat /tmp/terraformer/TF_VERSION) && \
-    export KUBECTL_VERSION=$(cat /tmp/terraformer/KUBECTL_VERSION) && \
-    apt-get update && \
-    apt-get install -y unzip && \
+# overwrite to build provider-specific image
+ARG PROVIDER=all
+
+# copy provider-specifc TF_VERSION
+COPY ./build/$PROVIDER/TF_VERSION .
+
+RUN export TF_VERSION=$(cat ./TF_VERSION) && \
     # install terraform and needed provider plugins
     mkdir -p /go/src/github.com/hashicorp && \
     git clone --single-branch --depth 1 --branch v${TF_VERSION} https://github.com/hashicorp/terraform.git /go/src/github.com/hashicorp/terraform && \
     cd /go/src/github.com/hashicorp/terraform && \
-    go install ./tools/terraform-bundle && \
-    cd /tmp/terraformer && \
-    ./scripts/fetch-providers && \
-    # install kubectl binary
-    curl -LO https://storage.googleapis.com/kubernetes-release/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl && \
-    chmod +x ./kubectl
+    go install ./tools/terraform-bundle
 
-#############   terraformer      #############
-FROM alpine:3.10.3 AS base
+# copy provider-specific terraform-bundle.hcl
+COPY ./build/$PROVIDER/terraform-bundle.hcl .
+RUN ./fetch-providers.sh
 
-RUN apk add --update bash curl tzdata
+############# builder
+FROM golang-base AS builder
+
+WORKDIR /go/src/github.com/gardener/terraformer
+COPY . .
+
+ARG PROVIDER=all
+
+RUN make install PROVIDER=$PROVIDER
+
+############# terraformer
+FROM eu.gcr.io/gardener-project/3rd/alpine:3.12.3 AS terraformer
+
+RUN apk add --update curl tzdata
 
 WORKDIR /
 
 ENV TF_DEV=true
 ENV TF_RELEASE=true
 
-COPY --from=builder /tmp/terraformer/kubectl /bin/kubectl
-COPY --from=builder /tmp/terraformer/terraform /bin/terraform
-COPY --from=builder /tmp/terraformer/terraform-provider* /terraform-providers/
+COPY --from=builder /go/bin/terraformer /
+COPY --from=terraform-base /tmp/terraformer/terraform /bin/terraform
+COPY --from=terraform-base /tmp/terraformer/terraform-provider* /terraform-providers/
 
-ADD ./terraform.sh /terraform.sh
-ADD ./terraformer.sh /terraformer.sh
+ENTRYPOINT ["/terraformer"]
 
-CMD exec /terraformer.sh
+############# dev
+FROM golang-base AS dev
+
+WORKDIR /go/src/github.com/gardener/terraformer
+VOLUME /go/src/github.com/gardener/terraformer
+
+COPY --from=terraform-base /tmp/terraformer/terraform /bin/terraform
+COPY --from=terraform-base /tmp/terraformer/terraform-provider* /terraform-providers/
+
+COPY vendor vendor
+COPY Makefile VERSION go.mod go.sum ./
+
+RUN make install-requirements

@@ -1,0 +1,51 @@
+apiVersion: testmachinery.sapcloud.io/v1beta1
+kind: Testrun
+metadata:
+  generateName: tm-terraformer-
+  namespace: default
+spec:
+  ttlSecondsAfterFinished: 172800 # 2 days
+  {{- if .Values.revision }}
+  locationSets:
+  - default: true
+    name: terraformer
+    locations:
+    - type: git
+      repo: https://github.com/gardener/terraformer.git
+      # revision will be set to HEAD commit in release jobs (release commit/tag doesn't exist at that point in time)
+      # this way, the test-machinery can get the current TestDefinitions
+      revision: {{ .Values.revision }}
+  {{- end }}
+
+  config:
+    - name: ACCESS_KEY_ID
+      type: env
+      valueFrom:
+        secretKeyRef:
+          name: shoot-operator-aws
+          key: accessKeyID
+    - name: SECRET_ACCESS_KEY
+      type: env
+      valueFrom:
+        secretKeyRef:
+          name: shoot-operator-aws
+          key: secretAccessKey
+  {{- if .Values.imageTag }}
+    - name: IMAGE_TAG
+      type: env
+      # Inject the docker image tag which we want to test in the release job (e.g. v2.1.0 instead of
+      # v2.1.0-dev-<commit-sha-of-current-head>).
+      # This test will run after the publish step, that means the tag will already exist and can be used for testing.
+      # In PR tests (via TM bot), we can leave this out, the calculated effective version will be something like
+      # v2.1.0-dev-<commit-sha>, which is the image which we want to test there.
+      value: {{ .Values.imageTag }}
+  {{- end }}
+
+  testflow:
+    - name: pod-e2e-test
+      definition:
+        name: pod-e2e-test
+        config:
+          - name: REGION
+            type: env
+            value: eu-west-1

@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2020 SAP SE or an SAP affiliate company and Gardener contributors
+#
+# SPDX-License-Identifier: Apache-2.0
+
+---
+# this cluster config can be used to spin up a kind cluster e.g. with
+# `kind create cluster --image kindest/node:v1.18.2 --config example/00-kind-cluster.yaml`
+# It adds `host.docker.internal` to the API server cert's SANs, so it will be trusted by the the terraformer
+# when running it in the dev container against the kind cluster (`host.docker.internal` is the easiest way of
+# accessing the kind cluster from inside a docker container).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+kubeadmConfigPatchesJSON6902:
+- group: kubeadm.k8s.io
+  version: v1beta2
+  kind: ClusterConfiguration
+  patch: |
+    - op: add
+      path: /apiServer/certSANs/-
+      value: host.docker.internal

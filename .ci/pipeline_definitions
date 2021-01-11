@@ -4,15 +4,53 @@ terraformer:
     repo: ~
     traits:
       version:
-        preprocess:
-          'inject-commit-hash'
+        preprocess: 'inject-commit-hash'
         inject_effective_version: true
       publish:
         dockerimages:
           terraformer:
             registry: 'gcr-readwrite'
             image: 'eu.gcr.io/gardener-project/gardener/terraformer'
-    steps: ~
+            target: terraformer
+          terraformer-alicloud:
+            registry: 'gcr-readwrite'
+            image: 'eu.gcr.io/gardener-project/gardener/terraformer-alicloud'
+            target: terraformer
+            build_args:
+              PROVIDER: alicloud
+          terraformer-aws:
+            registry: 'gcr-readwrite'
+            image: 'eu.gcr.io/gardener-project/gardener/terraformer-aws'
+            target: terraformer
+            build_args:
+              PROVIDER: aws
+          terraformer-azure:
+            registry: 'gcr-readwrite'
+            image: 'eu.gcr.io/gardener-project/gardener/terraformer-azure'
+            target: terraformer
+            build_args:
+              PROVIDER: azure
+          terraformer-gcp:
+            registry: 'gcr-readwrite'
+            image: 'eu.gcr.io/gardener-project/gardener/terraformer-gcp'
+            target: terraformer
+            build_args:
+              PROVIDER: gcp
+          terraformer-openstack:
+            registry: 'gcr-readwrite'
+            image: 'eu.gcr.io/gardener-project/gardener/terraformer-openstack'
+            target: terraformer
+            build_args:
+              PROVIDER: openstack
+          terraformer-packet:
+            registry: 'gcr-readwrite'
+            image: 'eu.gcr.io/gardener-project/gardener/terraformer-packet'
+            target: terraformer
+            build_args:
+              PROVIDER: packet
+    steps:
+      verify:
+        image: 'eu.gcr.io/gardener-project/3rd/golang:1.15.5'
   jobs:
     head-update:
       traits:
@@ -21,11 +59,24 @@ terraformer:
       traits:
         pull-request: ~
     release:
+      steps:
+        test-e2e:
+          execute:
+          - test-e2e.sh
+          depends:
+          - publish
+          image: 'eu.gcr.io/gardener-project/gardener/testmachinery/testmachinery-run:stable'
       traits:
         version:
           preprocess: 'finalize'
         release:
           nextversion: 'bump_minor'
+        slack:
+          default_channel: 'internal_scp_workspace'
+          channel_cfgs:
+            internal_scp_workspace:
+              channel_name: 'C9CEBQPGE' #sap-tech-gardener
+              slack_cfg_name: 'scp_workspace'
         component_descriptor: ~
         publish:
           dockerimages:
